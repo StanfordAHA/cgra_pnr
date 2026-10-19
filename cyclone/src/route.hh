@@ -161,6 +161,16 @@ protected:
 
 private:
     std::vector<int> squash_net(int src_id);
+    // A* over (node, register slots so far): the cheapest route with at least req_regs
+    // register-capable switch-box hops (env CYCLONE_REG_SEARCH); empty if none or if it
+    // revisits a node
+    std::vector<std::shared_ptr<Node>>
+    route_a_star_regs(const std::shared_ptr<Node> &start,
+                      std::function<bool(const std::shared_ptr<Node> &)> end_f,
+                      std::function<double(const std::shared_ptr<Node> &,
+                                           const std::shared_ptr<Node> &)> cost_f,
+                      std::function<double(const std::shared_ptr<Node> &)> h_f,
+                      int req_regs);
     // global net id to avoid conflict among different routers when sharing netlist
     static uint64_t net_id_count_;
 };

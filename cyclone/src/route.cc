@@ -1,3 +1,5 @@
+#include <unordered_map>
+#include <cstdlib>
 #include <map>
 #include <queue>
 #include <algorithm>
@@ -158,6 +160,98 @@ std::vector<std::shared_ptr<Node>> Router::route_a_star(
             return route_a_star(start, end_f, cost_f, h_f, 0);
         }
 
+static bool reg_search_enabled() {
+    const char *s = std::getenv("CYCLONE_REG_SEARCH");
+    return s != nullptr && std::string(s) != "" && std::string(s) != "0";
+}
+
+std::vector<std::shared_ptr<Node>> Router::route_a_star_regs(
+        const std::shared_ptr<Node> &start,
+        std::function<bool(const std::shared_ptr<Node> &)> end_f,
+        std::function<double(const std::shared_ptr<Node> &,
+                               const std::shared_ptr<Node> &)> cost_f,
+        std::function<double(const ::shared_ptr<Node> &)> h_f,
+        int req_regs) {
+    // A register slot is a switch-box node with a register neighbor followed by a
+    // generic node (where add_regs_post_route can insert the register). States are
+    // (node, slots so far, capped at req_regs); the goal is end_f with every slot.
+    using Key = std::pair<Node *, int>;
+    struct KeyHash {
+        size_t operator()(const Key &k) const {
+            return std::hash<Node *>()(k.first) * 131 + static_cast<size_t>(k.second);
+        }
+    };
+    struct Item {
+        double f;
+        double g;
+        std::shared_ptr<Node> node;
+        int k;
+    };
+    auto cmp = [](const Item &a, const Item &b) { return a.f > b.f; };
+    std::priority_queue<Item, std::vector<Item>, decltype(cmp)> queue(cmp);
+    std::unordered_map<Key, double, KeyHash> g_score;
+    std::unordered_map<Key, Key, KeyHash> parent;
+    std::unordered_set<Key, KeyHash> closed;
+    std::unordered_map<Node *, std::shared_ptr<Node>> keep;
+    auto has_reg = [](const std::shared_ptr<Node> &n) {
+        for (auto const &nb : *n) {
+            if (nb.lock()->type == NodeType::Register)
+                return true;
+        }
+        return false;
+    };
+    const Key s0{start.get(), 0};
+    g_score[s0] = 0;
+    keep[start.get()] = start;
+    queue.push({h_f(start), 0, start, 0});
+    while (!queue.empty()) {
+        auto item = queue.top();
+        queue.pop();
+        const Key key{item.node.get(), item.k};
+        if (closed.find(key) != closed.end())
+            continue;
+        closed.insert(key);
+        if (item.k >= req_regs && end_f(item.node)) {
+            std::vector<std::shared_ptr<Node>> path;
+            Key cur = key;
+            while (true) {
+                path.emplace_back(keep.at(cur.first));
+                if (cur == s0)
+                    break;
+                cur = parent.at(cur);
+            }
+            std::reverse(path.begin(), path.end());
+            std::unordered_set<Node *> seen;
+            for (auto const &n : path) {
+                if (!seen.insert(n.get()).second)
+                    return {};
+            }
+            return path;
+        }
+        for (auto const &w : *item.node) {
+            auto n = w.lock();
+            if (n->type == NodeType::Register)
+                continue;
+            int k = item.k;
+            if (n->type == NodeType::Generic && item.node->type == NodeType::SwitchBox
+                && has_reg(item.node))
+                k = std::min(req_regs, k + 1);
+            const Key nk{n.get(), k};
+            if (closed.find(nk) != closed.end())
+                continue;
+            double g = item.g + item.node->get_edge_cost(n) + cost_f(item.node, n);
+            auto it = g_score.find(nk);
+            if (it != g_score.end() && it->second <= g)
+                continue;
+            g_score[nk] = g;
+            parent[nk] = key;
+            keep[n.get()] = n;
+            queue.push({g + h_f(n), g, n, k});
+        }
+    }
+    return {};
+}
+
 std::vector<std::shared_ptr<Node>> Router::route_a_star(
         const std::shared_ptr<Node> &start,
         std::function<bool(const std::shared_ptr<Node> &)> end_f,
@@ -165,6 +259,11 @@ std::vector<std::shared_ptr<Node>> Router::route_a_star(
                                const std::shared_ptr<Node> &)> cost_f,
         std::function<double(const ::shared_ptr<Node> &)> h_f,
         int req_regs) {
+            if (req_regs > 0 && reg_search_enabled()) {
+        auto path = route_a_star_regs(start, end_f, cost_f, h_f, req_regs);
+        if (!path.empty())
+            return path;
+    }
             
     ::unordered_set<::shared_ptr<Node>> visited;
     ::unordered_map<::shared_ptr<Node>, double> g_score = {{start, 0}};
