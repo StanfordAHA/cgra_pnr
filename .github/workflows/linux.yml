@@ -1,6 +1,9 @@
 name: Linux Wheel Test
 
-on: [push]
+on:
+  push:
+  # When requested manually
+  workflow_dispatch:
 
 jobs:
   build:

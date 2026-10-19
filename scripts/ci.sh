@@ -12,21 +12,16 @@ if [[ "$OS" == "linux" ]]; then
             -e GITHUB_SHA="${GITHUB_SHA}" \
             stanfordaha/garnet:latest bash
 
-        # 3. Checkout the correct branch/commit in the container
+        # 3. Replace the container's cgra_pnr with this checkout (submodules included).
+        # Fetching inside the container fails: its repo's remote asks for credentials
+        # ("could not read Username"), as lake's and garnet's CI also found.
+        docker exec -i garnet_container bash -c "rm -rf /aha/cgra_pnr"
+        docker cp . garnet_container:/aha/cgra_pnr
         docker exec -i garnet_container bash -c "
             set -e
             git config --global --add safe.directory /aha/cgra_pnr
             cd /aha/cgra_pnr
-            if [[ \"\$GITHUB_REF\" == refs/heads/* ]]; then
-                # If on a regular branch
-                BRANCH=\"\${GITHUB_REF##refs/heads/}\"
-                git fetch origin \"\$BRANCH\"
-                git checkout \"\$BRANCH\"
-            else
-                # Otherwise use commit SHA
-                git fetch --all
-                git checkout \"\$GITHUB_SHA\"
-            fi
+            git log --oneline -1
         "
 
         # 4. Build the placer (thunder)
