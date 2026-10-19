@@ -14,6 +14,18 @@ place under a running PnR.
 `CYCLONE_REG_SEARCH=1` turns on a register-aware route search in `cyclone/src/route.{cc,hh}`.
 Unset, routes are byte-identical to before (checked on a conv_3_3 design).
 
+- **Why it exists:** archipelago folds a 2-pin chain of k netlist registers into one net that
+  needs k register slots (`needed_regs`). The stock `route_a_star` only discourages blocked
+  register nodes, so it fails on long chains.
+- **What it does:** `route_a_star_regs` searches over (node, slots so far). It skips Register
+  nodes, counts a slot on each SB → register-mux hop that has a free register, and refuses
+  paths that revisit a node.
+- **Who sets it:** `aha pnr --rv-balance N` (aha `aha/util/rv_balance.py`) sets it for its
+  re-PnR rounds, which route the padding chains. Measured on RV harris_color (256 padding
+  registers, up to 34 in a chain): the stock search fails with `req_regs 33`; with the new
+  search it routes and runs bit-accurate at static pace (garnet mflowgen/CLAUDE.md "RV branch
+  balancing").
+
 ## CI (GitHub "Linux Wheel Test", `.github/workflows/linux.yml` → `scripts/ci.sh`)
 
 Runs on every push (a commit message with `skip ci` skips it) and by hand (`workflow_dispatch`:
