@@ -44,9 +44,12 @@ if [[ "$OS" == "linux" ]]; then
             make -j router
         '
 
-        # 6. pip install -e for thunder and cyclone
+        # 6. pip install -e for thunder and cyclone, into the aha venv (Python 3.8) that
+        # step 7 uses; the image's default pip is conda's Python 3.14, which this
+        # pybind11 cannot build against
         docker exec -i garnet_container bash -c '
             set -e
+            source /aha/bin/activate
             cd /aha/cgra_pnr/thunder
             pip install -e .
             cd /aha/cgra_pnr/cyclone
